@@ -42,8 +42,11 @@ class CustomsLedger:
         self._holds[record.hold_id] = record
         return record
 
+    def holds_for_container(self, container_id: str) -> tuple[HoldRecord, ...]:
+        return tuple(h for h in self._holds.values() if h.container_id == container_id)
+
     def active_holds(self, container_id: str) -> tuple[HoldRecord, ...]:
-        return tuple((h for h in self._holds.values() if h.container_id == container_id and h.state == HoldState.ACTIVE))
+        return tuple((h for h in self.holds_for_container(container_id) if h.state == HoldState.ACTIVE))
 
     def is_blocked(self, container_id: str) -> bool:
         return bool(self.active_holds(container_id))

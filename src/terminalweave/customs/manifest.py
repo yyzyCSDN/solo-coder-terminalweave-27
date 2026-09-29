@@ -50,6 +50,11 @@ class ManifestLedger:
     def latest(self) -> ManifestVersion | None:
         return self.versions[-1] if self.versions else None
 
+    def version_at(self, at: datetime) -> ManifestVersion | None:
+        at = ensure_utc(at)
+        values = [v for v in self.versions if v.submitted_at <= at]
+        return values[-1] if values else None
+
     def changes(self, older: int, newer: int) -> dict[str, set[str]]:
         a = next((v for v in self.versions if v.version == older))
         b = next((v for v in self.versions if v.version == newer))

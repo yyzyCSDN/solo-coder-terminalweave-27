@@ -34,9 +34,20 @@ class AuthorityInbox:
                 raise ValidationError('superseding message must be newer')
         self.messages[m.message_id] = m
 
-    def effective(self, container_id: str) -> tuple[AuthorityMessage, ...]:
-        superseded = {m.supersedes for m in self.messages.values() if m.supersedes}
-        values = [m for m in self.messages.values() if m.container_id == container_id and m.message_id not in superseded]
+    def effective(self, container_id: str, at: datetime | None = None) -> tuple[AuthorityMessage, ...]:
+        if at is not None:
+            at = ensure_utc(at)
+        superseded = {
+            m.supersedes
+            for m in self.messages.values()
+            if m.supersedes and (at is None or m.issued_at <= at)
+        }
+        values = [
+            m for m in self.messages.values()
+            if m.container_id == container_id
+            and m.message_id not in superseded
+            and (at is None or m.issued_at <= at)
+        ]
         return tuple(sorted(values, key=lambda x: (x.authority, x.issued_at, x.message_id)))
 
     def latest(self, container_id: str, authority: str, message_type: str) -> AuthorityMessage | None:

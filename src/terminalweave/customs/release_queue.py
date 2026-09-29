@@ -36,6 +36,15 @@ class ReleaseQueue:
         values = self.ready()
         return values[0] if values else None
 
+    def get(self, request_id: str) -> ReleaseRequest | None:
+        return self._requests.get(request_id)
+
+    def open_requests(self) -> tuple[ReleaseRequest, ...]:
+        return tuple(r for r in self._requests.values() if r.request_id not in self._processed)
+
+    def is_processed(self, request_id: str) -> bool:
+        return request_id in self._processed
+
     def mark_processed(self, request_id: str) -> None:
         if request_id not in self._requests:
             raise ValidationError('unknown request')
