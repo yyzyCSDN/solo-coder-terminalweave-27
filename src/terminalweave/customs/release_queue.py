@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from terminalweave.core.clock import ensure_utc
 from terminalweave.core.errors import ValidationError
+from terminalweave.core.observable import Observable
 
 @dataclass(frozen=True)
 class ReleaseRequest:
@@ -16,9 +17,10 @@ class ReleaseRequest:
     def __post_init__(self):
         object.__setattr__(self, 'submitted_at', ensure_utc(self.submitted_at))
 
-class ReleaseQueue:
+class ReleaseQueue(Observable):
 
     def __init__(self):
+        super().__init__()
         self._requests: dict[str, ReleaseRequest] = {}
         self._processed: set[str] = set()
 
@@ -26,6 +28,16 @@ class ReleaseQueue:
         if r.request_id in self._requests:
             raise ValidationError('duplicate release request')
         self._requests[r.request_id] = r
+        self.notify('release_request_submitted', {'request_id': r.request_id, 'container_id': r.container_id})
+
+    def get(self, request_id: str) -> ReleaseRequest | None:
+        return self._requests.get(request_id)
+
+    def all(self) -> tuple[ReleaseRequest, ...]:
+        return tuple(sorted(self._requests.values(), key=lambda r: (r.submitted_at, r.request_id)))
+
+    def is_processed(self, request_id: str) -> bool:
+        return request_id in self._processed
 
     def ready(self) -> list[ReleaseRequest]:
         band = {'low': 0, 'medium': 1, 'high': 2}
@@ -39,4 +51,6 @@ class ReleaseQueue:
     def mark_processed(self, request_id: str) -> None:
         if request_id not in self._requests:
             raise ValidationError('unknown request')
-        self._processed.add(request_id)
+        if request_id not in self._processed:
+            self._processed.add(request_id)
+            self.notify('release_request_processed', {'request_id': request_id, 'container_id': self._requests[request_id].container_id})

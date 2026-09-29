@@ -28,3 +28,21 @@ library components intended to be composed by an embedding application.
 ## Main packages
 
 `marine`, `cranes`, `yard`, `gate`, `customs`, `reefer`, `hazmat`, `equipment`, `rail`, `billing`, `transshipment`, `planning`, `persistence`, `reporting`, and `api`.
+
+### Unified customs release view
+
+The customs queues (holds, risk, inspection, manifest, release queue and the
+authority inbox) each work independently. `customs.unified_release.UnifiedReleaseBoard`
+fuses them into one releasable/blocked verdict per release request:
+
+- every basis is checked; a missing basis blocks as *missing* (fail closed),
+  alongside any actively blocking basis, each with a stable code and full
+  per-basis reasons;
+- pending requests are recomputed automatically when an official message
+  arrives or the manifest changes (hold, risk and inspection updates
+  recompute the affected container as well);
+- an executed movement is frozen with its exact decision snapshot and the
+  complete reasons at execution time, and is never recomputed or rewritten
+  by later upstream changes;
+- `view(...)` returns one row per request for the duty officer, filtered by
+  `status`/`container`, and rows serialize with `core.serialization.to_primitive`.

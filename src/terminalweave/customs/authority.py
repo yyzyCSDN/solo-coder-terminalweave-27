@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from terminalweave.core.clock import ensure_utc
 from terminalweave.core.errors import ValidationError
+from terminalweave.core.observable import Observable
 
 @dataclass(frozen=True)
 class AuthorityMessage:
@@ -16,9 +17,10 @@ class AuthorityMessage:
     def __post_init__(self):
         object.__setattr__(self, 'issued_at', ensure_utc(self.issued_at))
 
-class AuthorityInbox:
+class AuthorityInbox(Observable):
 
     def __init__(self):
+        super().__init__()
         self.messages: dict[str, AuthorityMessage] = {}
 
     def ingest(self, m: AuthorityMessage) -> None:
@@ -33,6 +35,7 @@ class AuthorityInbox:
             if m.issued_at <= old.issued_at:
                 raise ValidationError('superseding message must be newer')
         self.messages[m.message_id] = m
+        self.notify('authority_message_ingested', {'container_id': m.container_id, 'message_id': m.message_id, 'authority': m.authority, 'message_type': m.message_type, 'supersedes': m.supersedes})
 
     def effective(self, container_id: str) -> tuple[AuthorityMessage, ...]:
         superseded = {m.supersedes for m in self.messages.values() if m.supersedes}

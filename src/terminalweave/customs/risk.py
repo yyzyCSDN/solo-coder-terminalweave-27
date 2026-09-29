@@ -1,6 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime
+from terminalweave.core.clock import ensure_utc
 from terminalweave.core.errors import ValidationError
+from terminalweave.core.observable import Observable
 
 @dataclass(frozen=True)
 class RiskInput:
@@ -45,3 +48,43 @@ class CustomsRiskEngine:
         score = min(100.0, score)
         band = 'high' if score >= 60 else 'medium' if score >= 30 else 'low'
         return RiskResult(round(score, 2), band, tuple(reasons))
+
+
+@dataclass(frozen=True)
+class RiskAssessment:
+    assessment_id: str
+    container_id: str
+    evaluated_at: datetime
+    result: RiskResult
+
+    def __post_init__(self):
+        object.__setattr__(self, 'evaluated_at', ensure_utc(self.evaluated_at))
+
+
+class RiskAssessmentBook(Observable):
+    """Records risk outcomes per container so the release view can fail
+    closed when a container has never been screened."""
+
+    def __init__(self, engine: CustomsRiskEngine | None = None):
+        super().__init__()
+        self.engine = engine
+        self._assessments: dict[str, list[RiskAssessment]] = {}
+
+    def record(self, assessment: RiskAssessment) -> RiskAssessment:
+        prior = self.latest(assessment.container_id)
+        if prior and assessment.evaluated_at < prior.evaluated_at:
+            raise ValidationError('risk assessment must be newer than the current one')
+        self._assessments.setdefault(assessment.container_id, []).append(assessment)
+        self.notify('risk_assessed', {'container_id': assessment.container_id, 'assessment_id': assessment.assessment_id, 'band': assessment.result.band, 'score': assessment.result.score})
+        return assessment
+
+    def evaluate(self, assessment_id: str, container_id: str, x: RiskInput, at: datetime) -> RiskAssessment:
+        if self.engine is None:
+            raise ValidationError('risk book has no engine configured')
+        return self.record(RiskAssessment(assessment_id, container_id, at, self.engine.evaluate(x)))
+
+    def latest(self, container_id: str) -> RiskAssessment | None:
+        values = self._assessments.get(container_id)
+        if not values:
+            return None
+        return max(values, key=lambda a: (a.evaluated_at, a.assessment_id))

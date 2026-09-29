@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from terminalweave.core.clock import ensure_utc
 from terminalweave.core.errors import ValidationError, ConflictError
+from terminalweave.core.observable import Observable
 
 @dataclass(frozen=True)
 class ManifestItem:
@@ -34,9 +35,10 @@ class ManifestVersion:
         if len(ids) != len(set(ids)):
             raise ValidationError('manifest contains duplicate container')
 
-class ManifestLedger:
+class ManifestLedger(Observable):
 
     def __init__(self):
+        super().__init__()
         self.versions: list[ManifestVersion] = []
 
     def submit(self, version: ManifestVersion) -> None:
@@ -46,6 +48,15 @@ class ManifestLedger:
         if self.versions and version.submitted_at <= self.versions[-1].submitted_at:
             raise ValidationError('submission time must increase')
         self.versions.append(version)
+        prior = self.versions[-2] if len(self.versions) >= 2 else None
+        changes = self.changes(prior.version, version.version) if prior else {'added': {i.container_id for i in version.items}, 'removed': set(), 'changed': set()}
+        self.notify('manifest_submitted', {'version': version.version, 'submitted_at': version.submitted_at, 'added': tuple(sorted(changes['added'])), 'removed': tuple(sorted(changes['removed'])), 'changed': tuple(sorted(changes['changed']))})
+
+    def lookup(self, container_id: str) -> ManifestItem | None:
+        latest = self.latest()
+        if not latest:
+            return None
+        return next((x for x in latest.items if x.container_id == container_id), None)
 
     def latest(self) -> ManifestVersion | None:
         return self.versions[-1] if self.versions else None

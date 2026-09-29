@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from terminalweave.core.clock import ensure_utc
 from terminalweave.core.errors import ValidationError, CapacityError, StateTransitionError
+from terminalweave.core.observable import Observable
 
 class InspectionState(str, Enum):
     REQUESTED = 'requested'
@@ -34,9 +35,10 @@ class InspectionBay:
         if self.daily_capacity <= 0:
             raise ValidationError('capacity must be positive')
 
-class InspectionScheduler:
+class InspectionScheduler(Observable):
 
     def __init__(self, bays: list[InspectionBay]):
+        super().__init__()
         self.bays = {b.bay_id: b for b in bays}
         self.items: dict[str, Inspection] = {}
 
@@ -44,6 +46,13 @@ class InspectionScheduler:
         if item.inspection_id in self.items:
             raise ValidationError('duplicate inspection')
         self.items[item.inspection_id] = item
+        self.notify('inspection_requested', {'container_id': item.container_id, 'inspection_id': item.inspection_id})
+
+    def latest_for(self, container_id: str) -> Inspection | None:
+        values = [x for x in self.items.values() if x.container_id == container_id]
+        if not values:
+            return None
+        return max(values, key=lambda x: (x.requested_at, x.inspection_id))
 
     def schedule(self, inspection_id: str, at: datetime, requires_xray: bool=False) -> Inspection:
         at = ensure_utc(at)
@@ -63,6 +72,7 @@ class InspectionScheduler:
         item.bay_id = bay.bay_id
         item.scheduled_at = at
         item.state = InspectionState.SCHEDULED
+        self.notify('inspection_scheduled', {'container_id': item.container_id, 'inspection_id': inspection_id, 'bay_id': item.bay_id})
         return item
 
     def start(self, inspection_id: str) -> Inspection:
@@ -70,6 +80,7 @@ class InspectionScheduler:
         if item.state != InspectionState.SCHEDULED:
             raise StateTransitionError('inspection is not scheduled')
         item.state = InspectionState.STARTED
+        self.notify('inspection_started', {'container_id': item.container_id, 'inspection_id': inspection_id})
         return item
 
     def finish(self, inspection_id: str, cleared: bool) -> Inspection:
@@ -77,4 +88,5 @@ class InspectionScheduler:
         if item.state != InspectionState.STARTED:
             raise StateTransitionError('inspection has not started')
         item.state = InspectionState.CLEARED if cleared else InspectionState.REFERRED
+        self.notify('inspection_finished', {'container_id': item.container_id, 'inspection_id': inspection_id, 'cleared': cleared, 'state': item.state.value})
         return item

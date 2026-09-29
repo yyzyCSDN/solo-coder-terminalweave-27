@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from terminalweave.core.clock import ensure_utc
 from terminalweave.core.errors import ValidationError, StateTransitionError
+from terminalweave.core.observable import Observable
 
 class HoldState(str, Enum):
     ACTIVE = 'active'
@@ -27,9 +28,10 @@ class HoldRecord:
         self.created_at = ensure_utc(self.created_at)
         self.history.append((self.revision, self.state.value, 'created'))
 
-class CustomsLedger:
+class CustomsLedger(Observable):
 
     def __init__(self):
+        super().__init__()
         self._holds: dict[str, HoldRecord] = {}
         self._release_tokens: dict[str, tuple[str, int]] = {}
 
@@ -40,6 +42,7 @@ class CustomsLedger:
                 return existing
             raise ValidationError('hold id collision')
         self._holds[record.hold_id] = record
+        self.notify('hold_placed', {'container_id': record.container_id, 'hold_id': record.hold_id, 'authority': record.authority, 'reason_code': record.reason_code})
         return record
 
     def active_holds(self, container_id: str) -> tuple[HoldRecord, ...]:
@@ -70,6 +73,7 @@ class CustomsLedger:
         record.revision += 1
         record.history.append((record.revision, record.state.value, actor))
         self._release_tokens[request_token] = (hold_id, record.revision)
+        self.notify('hold_released', {'container_id': record.container_id, 'hold_id': hold_id, 'released_by': actor, 'revision': record.revision})
         return record
 
     def cancel(self, hold_id: str, actor: str) -> HoldRecord:
@@ -79,6 +83,7 @@ class CustomsLedger:
         record.state = HoldState.CANCELLED
         record.revision += 1
         record.history.append((record.revision, record.state.value, actor))
+        self.notify('hold_cancelled', {'container_id': record.container_id, 'hold_id': hold_id, 'cancelled_by': actor, 'revision': record.revision})
         return record
 
     def movement_allowed(self, container_id: str, movement: str) -> bool:
